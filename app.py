@@ -199,7 +199,6 @@ def clear_dirs():
 with gr.Blocks(title="Pinokio Backup Tool") as app:
     gr.Markdown("""
 # 📦 Pinokio Backup Tool
-
 A GitHub-ready backup & restore solution for Pinokio.
 """)
 
@@ -224,9 +223,9 @@ A GitHub-ready backup & restore solution for Pinokio.
         def add_folder_from_picker(files):
             if not files:
                 return folder_list.value
-            path = files[0]
-            if path not in selected_dirs:
-                selected_dirs.append(path)
+            for path in files:
+                if path not in selected_dirs:
+                    selected_dirs.append(path)
             return selected_dirs
 
         add_btn.click(add_folder_from_picker, folder_picker, folder_list)
@@ -241,6 +240,8 @@ A GitHub-ready backup & restore solution for Pinokio.
         profile_selector.change(load_profile, profile_selector, [folder_list,dest_picker])
 
         def run_backup_ui(srcs,dst_files,prof,mode,archive,dry):
+            if isinstance(srcs,str):
+                srcs = [srcs]
             dest = dst_files[0] if dst_files else None
             stats = backup_engine(srcs,dest,mode,archive,dry)
             return (
@@ -262,6 +263,8 @@ A GitHub-ready backup & restore solution for Pinokio.
         def restore_ui(src_files,dst_files):
             if not src_files or not dst_files:
                 return "❌ Please select both source and destination folders"
+            if isinstance(src_files,str): src_files=[src_files]
+            if isinstance(dst_files,str): dst_files=[dst_files]
             return restore_backup(src_files[0],dst_files[0])
 
         restore_btn.click(restore_ui,[restore_src_picker,restore_dst_picker],restore_out)
