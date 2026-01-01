@@ -86,7 +86,6 @@ def load_ignore_patterns():
 def ignored(path, patterns):
     return any(fnmatch.fnmatch(path.name, p) for p in patterns)
 
-
 # ==================================================
 # BACKUP ENGINE
 # ==================================================
@@ -150,8 +149,8 @@ def backup_engine(sources, destination, mode, archive_type, dry_run, progress=No
                 for f in written_files:
                     z.write(f, arcname=f.relative_to(base))
         else:
-            mode = "w:gz" if archive_type == "tar.gz" else "w"
-            with tarfile.open(archive_path, mode) as t:
+            mode_tar = "w:gz" if archive_type == "tar.gz" else "w"
+            with tarfile.open(archive_path, mode_tar) as t:
                 for f in written_files:
                     t.add(f, arcname=f.relative_to(base))
 
@@ -163,7 +162,6 @@ def backup_engine(sources, destination, mode, archive_type, dry_run, progress=No
         "total": total,
         "archive": str(archive_path) if archive_path else None
     }
-
 
 # ==================================================
 # RESTORE ENGINE
@@ -186,13 +184,11 @@ def restore_backup(backup_folder, target_dir):
 
     return f"✅ Restored {restored} files"
 
-
 # ==================================================
 # PROFILES
 # ==================================================
 
 profiles = load_json(PROFILE_FILE, {})
-
 
 def save_profile(name, sources, dest):
     profiles[name] = {"sources": sources, "destination": dest}
@@ -206,19 +202,16 @@ def load_profile(name):
         return [], ""
     return p.get("sources", []), p.get("destination", "")
 
-
 # ==================================================
 # UI STATE
 # ==================================================
 
 selected_dirs = []
 
-
 def add_dir(path):
     if path and path not in selected_dirs:
         selected_dirs.append(path)
     return selected_dirs
-
 
 def add_preset(name):
     p = PINOKIO_PRESETS.get(name)
@@ -226,11 +219,9 @@ def add_preset(name):
         selected_dirs.append(p)
     return selected_dirs
 
-
 def clear_dirs():
     selected_dirs.clear()
     return selected_dirs
-
 
 # ==================================================
 # GRADIO UI
@@ -252,39 +243,58 @@ A complete **GitHub-ready backup & restore solution** for Pinokio.
 ✔ Dry run  
 ✔ CLI support  
 ✔ Pinokio presets  
-✔ Progress tracking  
+✔ Progress tracking
 """)
 
     with gr.Tab("Backup"):
-        with gr.Row():
-            folder_picker = gr.File(label="Select folder to add", file_count="directory")
-            add_btn = gr.Button("➕ Add selected folder")
-
-        with gr.Row():
-            preset = gr.Dropdown(list(PINOKIO_PRESETS.keys()), label="Quick add Pinokio folder")
-            add_preset_btn = gr.Button("➕ Add preset")
-
+        folder_picker = gr.File(label="Select folder to add", file_count="directory")
+        add_btn = gr.Button("➕ Add selected folder")
+        preset = gr.Dropdown(list(PINOKIO_PRESETS.keys()), label="Quick add Pinokio folder")
+        add_preset_btn = gr.Button("➕ Add preset")
         folder_list = gr.JSON(label="Selected folders")
         clear_btn = gr.Button("🧹 Clear folders")
-
         dest_picker = gr.File(label="Backup destination", file_count="directory")
-
-        with gr.Row():
-            profile_name = gr.Textbox(label="Profile name")
-            save_profile_btn = gr.Button("💾 Save profile")
-
+        profile_name = gr.Textbox(label="Profile name")
+        save_profile_btn = gr.Button("💾 Save profile")
         profile_selector = gr.Dropdown(choices=list(profiles.keys()), label="Load profile")
-
-        with gr.Row():
-            mode = gr.Radio(["flat", "incremental"], value="incremental", label="Backup mode")
-            archive = gr.Radio(["none", "zip", "tar", "tar.gz"], value="none", label="Archive")
-
+        mode = gr.Radio(["flat", "incremental"], value="incremental", label="Backup mode")
+        archive = gr.Radio(["none", "zip", "tar", "tar.gz"], value="none", label="Archive")
         dry_run = gr.Checkbox(label="Dry run (no files written)")
-
         progress = gr.Progress()
-
         run_btn = gr.Button("🚀 Run Backup")
         output = gr.Textbox(lines=10, label="Log")
+
+        def add_dir_from_picker(files):
+            if not files:
+                return folder_list.value
+            path = files[0]
+            if path not in selected_dirs:
+                selected_dirs.append(path)
+            return selected_dirs
+
+        add_btn.click(add_dir_from_picker, folder_picker, folder_list)
+        add_preset_btn.click(add_preset, preset, folder_list)
+        clear_btn.click(clear_dirs, None, folder_list)
+
+        def save_profile_ui(name, sources, dst_files):
+            dest = dst_files[0] if dst_files else ""
+            return save_profile(name, sources, dest)
+
+        save_profile_btn.click(save_profile_ui, [profile_name, folder_list, dest_picker], profile_selector)
+        profile_selector.change(load_profile, profile_selector, [folder_list, dest_picker])
+
+        def run_backup_ui(srcs, dst_files, prof, mode, archive, dry):
+            dest = dst_files[0] if dst_files else None
+            stats = backup_engine(srcs, dest, mode, archive, dry)
+            return (
+                "✅ Backup complete\n"
+                f"Copied: {stats['copied']}\n"
+                f"Skipped: {stats['skipped']}\n"
+                f"Total scanned: {stats['total']}\n"
+                f"Archive: {stats['archive']}"
+            )
+
+        run_btn.click(run_backup_ui, [folder_list, dest_picker, profile_name, mode, archive, dry_run], output)
 
     with gr.Tab("Restore"):
         restore_src_picker = gr.File(label="Backup folder to restore from", file_count="directory")
@@ -292,85 +302,23 @@ A complete **GitHub-ready backup & restore solution** for Pinokio.
         restore_btn = gr.Button("♻ Restore")
         restore_out = gr.Textbox(lines=6)
 
-        restore_src = gr.Textbox(label="Backup folder to restore from")
-        restore_dst = gr.Textbox(label="Restore destination")
-        restore_btn = gr.Button("♻ Restore")
-        restore_out = gr.Textbox(lines=6)
+        def restore_ui(src_files, dst_files):
+            if not src_files or not dst_files:
+                return "❌ Please select both source and destination folders"
+            return restore_backup(src_files[0], dst_files[0])
+
+        restore_btn.click(restore_ui, [restore_src_picker, restore_dst_picker], restore_out)
 
     with gr.Tab("Ignore rules"):
-        ignore_editor = gr.Textbox(
-            value="\n".join(DEFAULT_IGNORE),
-            lines=12,
-            label="Ignore patterns (glob)"
-        )
+        ignore_editor = gr.Textbox(value="\n".join(DEFAULT_IGNORE), lines=12, label="Ignore patterns (glob)")
         save_ignore = gr.Button("💾 Save ignore rules")
 
-    # ---------------- EVENTS ----------------
+        def save_ignore_rules(txt):
+            with open(IGNORE_FILE, "w") as f:
+                f.write(txt)
+            return "✅ Ignore rules saved"
 
-    def add_dir_from_picker(files):
-        if not files:
-            return folder_list.value
-        path = files[0]
-        if path not in selected_dirs:
-            selected_dirs.append(path)
-        return selected_dirs
-
-    add_btn.click(add_dir_from_picker, folder_picker, folder_list)
-    add_preset_btn.click(add_preset, preset, folder_list)
-    clear_btn.click(clear_dirs, None, folder_list)
-
-    def save_profile_ui(name, sources, dst_files):
-        dest = dst_files[0] if dst_files else ""
-        return save_profile(name, sources, dest)
-
-    save_profile_btn.click(save_profile_ui, [profile_name, folder_list, dest_picker], profile_selector)
-    profile_selector.change(load_profile, profile_selector, [folder_list, dest])
-
-    def run_backup_ui(srcs, dst, prof, mode, archive, dry):
-        stats = backup_engine(srcs, dst, mode, archive, dry)
-        return (
-            f"✅ Backup complete\n"
-            f"Copied: {stats['copied']}\n"
-            f"Skipped: {stats['skipped']}\n"
-            f"Total scanned: {stats['total']}\n"
-            f"Archive: {stats['archive']}"
-        )
-
-    def run_backup_ui(srcs, dst_files, prof, mode, archive, dry):
-        dest = dst_files[0] if dst_files else None
-        stats = backup_engine(srcs, dest, mode, archive, dry)
-        return (
-            f"✅ Backup complete
-"
-            f"Copied: {stats['copied']}
-"
-            f"Skipped: {stats['skipped']}
-"
-            f"Total scanned: {stats['total']}
-"
-            f"Archive: {stats['archive']}"
-        )
-
-    run_btn.click(
-        run_backup_ui,
-        [folder_list, dest_picker, profile_name, mode, archive, dry_run],
-        output
-    )
-
-    def restore_ui(src_files, dst_files):
-        if not src_files or not dst_files:
-            return "❌ Please select both source and destination folders"
-        return restore_backup(src_files[0], dst_files[0])
-
-    restore_btn.click(restore_ui, [restore_src_picker, restore_dst_picker], restore_out)
-
-    def save_ignore_rules(txt):
-        with open(IGNORE_FILE, "w") as f:
-            f.write(txt)
-        return "✅ Ignore rules saved"
-
-    save_ignore.click(save_ignore_rules, ignore_editor, output)
-
+        save_ignore.click(save_ignore_rules, ignore_editor, output)
 
 # ==================================================
 # CLI SUPPORT
@@ -391,18 +339,11 @@ def cli():
     args = parser.parse_args()
 
     if args.backup:
-        stats = backup_engine(
-            args.sources,
-            args.dest,
-            args.mode,
-            args.archive,
-            args.dry,
-        )
+        stats = backup_engine(args.sources, args.dest, args.mode, args.archive, args.dry)
         print(json.dumps(stats, indent=2))
 
     elif args.restore:
         print(restore_backup(args.restore_src, args.restore_dest))
-
 
 if __name__ == "__main__":
     import sys
