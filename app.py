@@ -257,8 +257,8 @@ A complete **GitHub-ready backup & restore solution** for Pinokio.
 
     with gr.Tab("Backup"):
         with gr.Row():
-            folder_input = gr.Textbox(label="Add folder path")
-            add_btn = gr.Button("➕ Add")
+            folder_picker = gr.File(label="Select folder to add", file_count="directory")
+            add_btn = gr.Button("➕ Add selected folder")
 
         with gr.Row():
             preset = gr.Dropdown(list(PINOKIO_PRESETS.keys()), label="Quick add Pinokio folder")
@@ -267,7 +267,7 @@ A complete **GitHub-ready backup & restore solution** for Pinokio.
         folder_list = gr.JSON(label="Selected folders")
         clear_btn = gr.Button("🧹 Clear folders")
 
-        dest = gr.Textbox(label="Backup destination")
+        dest_picker = gr.File(label="Backup destination", file_count="directory")
 
         with gr.Row():
             profile_name = gr.Textbox(label="Profile name")
@@ -287,6 +287,11 @@ A complete **GitHub-ready backup & restore solution** for Pinokio.
         output = gr.Textbox(lines=10, label="Log")
 
     with gr.Tab("Restore"):
+        restore_src_picker = gr.File(label="Backup folder to restore from", file_count="directory")
+        restore_dst_picker = gr.File(label="Restore destination", file_count="directory")
+        restore_btn = gr.Button("♻ Restore")
+        restore_out = gr.Textbox(lines=6)
+
         restore_src = gr.Textbox(label="Backup folder to restore from")
         restore_dst = gr.Textbox(label="Restore destination")
         restore_btn = gr.Button("♻ Restore")
@@ -302,11 +307,23 @@ A complete **GitHub-ready backup & restore solution** for Pinokio.
 
     # ---------------- EVENTS ----------------
 
-    add_btn.click(add_dir, folder_input, folder_list)
+    def add_dir_from_picker(files):
+        if not files:
+            return folder_list.value
+        path = files[0]
+        if path not in selected_dirs:
+            selected_dirs.append(path)
+        return selected_dirs
+
+    add_btn.click(add_dir_from_picker, folder_picker, folder_list)
     add_preset_btn.click(add_preset, preset, folder_list)
     clear_btn.click(clear_dirs, None, folder_list)
 
-    save_profile_btn.click(save_profile, [profile_name, folder_list, dest], profile_selector)
+    def save_profile_ui(name, sources, dst_files):
+        dest = dst_files[0] if dst_files else ""
+        return save_profile(name, sources, dest)
+
+    save_profile_btn.click(save_profile_ui, [profile_name, folder_list, dest_picker], profile_selector)
     profile_selector.change(load_profile, profile_selector, [folder_list, dest])
 
     def run_backup_ui(srcs, dst, prof, mode, archive, dry):
@@ -319,13 +336,33 @@ A complete **GitHub-ready backup & restore solution** for Pinokio.
             f"Archive: {stats['archive']}"
         )
 
+    def run_backup_ui(srcs, dst_files, prof, mode, archive, dry):
+        dest = dst_files[0] if dst_files else None
+        stats = backup_engine(srcs, dest, mode, archive, dry)
+        return (
+            f"✅ Backup complete
+"
+            f"Copied: {stats['copied']}
+"
+            f"Skipped: {stats['skipped']}
+"
+            f"Total scanned: {stats['total']}
+"
+            f"Archive: {stats['archive']}"
+        )
+
     run_btn.click(
         run_backup_ui,
-        [folder_list, dest, profile_name, mode, archive, dry_run],
+        [folder_list, dest_picker, profile_name, mode, archive, dry_run],
         output
     )
 
-    restore_btn.click(restore_backup, [restore_src, restore_dst], restore_out)
+    def restore_ui(src_files, dst_files):
+        if not src_files or not dst_files:
+            return "❌ Please select both source and destination folders"
+        return restore_backup(src_files[0], dst_files[0])
+
+    restore_btn.click(restore_ui, [restore_src_picker, restore_dst_picker], restore_out)
 
     def save_ignore_rules(txt):
         with open(IGNORE_FILE, "w") as f:
