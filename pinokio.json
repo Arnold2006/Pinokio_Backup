@@ -1,0 +1,7 @@
+{
+  "name": "Pinokio Backup Tool",
+  "description": "Full-featured backup & restore tool for Pinokio models and apps",
+  "run": "python app.py",
+  "ui": "gradio",
+  "icon": "📦"
+}
