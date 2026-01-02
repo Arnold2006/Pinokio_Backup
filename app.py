@@ -75,9 +75,9 @@ def save_json(path, data):
 
 def load_ignore_patterns():
     if not os.path.exists(IGNORE_FILE):
-        with open(IGNORE_FILE, "w") as f:
+        with open(IGNORE_FILE, "w", encoding="utf-8") as f:
             f.write("\n".join(DEFAULT_IGNORE))
-    with open(IGNORE_FILE) as f:
+    with open(IGNORE_FILE, "r", encoding="utf-8") as f:
         return [l.strip() for l in f if l.strip()]
 
 
@@ -219,15 +219,16 @@ Now supports selecting multiple source folders via the browse picker, with a sin
 """)
 
     with gr.Tab("Backup"):
-        # Allow selecting multiple directories in the source picker
-        folder_picker = gr.File(label="Browse and select folder(s) to add", file_types=[], file_count="multiple", allow_dir=True)
+        # Use gr.Directory for picking local folders (single at a time).
+        # The user can press "Add folder(s)" repeatedly to accumulate multiple folders.
+        folder_picker = gr.Directory(label="Browse and select folder to add")
         add_btn = gr.Button("➕ Add folder(s)")
         preset = gr.Dropdown(list(PINOKIO_PRESETS.keys()), label="Quick add Pinokio folder")
         add_preset_btn = gr.Button("➕ Add preset")
         folder_list = gr.JSON(label="Selected folders")
         clear_btn = gr.Button("🧹 Clear folders")
-        # Destination picker remains a single directory
-        dest_picker = gr.File(label="Browse backup destination", file_types=[], file_count="directory", allow_dir=True)
+        # Destination picker uses a single directory
+        dest_picker = gr.Directory(label="Browse backup destination")
         profile_name = gr.Textbox(label="Profile name")
         save_profile_btn = gr.Button("💾 Save profile")
         profile_selector = gr.Dropdown(choices=list(profiles.keys()), label="Load profile")
@@ -238,44 +239,45 @@ Now supports selecting multiple source folders via the browse picker, with a sin
         run_btn = gr.Button("🚀 Run Backup")
         output = gr.Textbox(lines=10,label="Log")
 
-        def add_folder_from_picker(files):
-            if not files:
-                return folder_list.value
-            for path in files:
-                if path not in selected_dirs:
-                    selected_dirs.append(path)
+        def add_folder_from_picker(path):
+            # gr.Directory returns a single path string (or None).
+            if not path:
+                return selected_dirs
+            if path not in selected_dirs:
+                selected_dirs.append(path)
             return selected_dirs
 
         add_btn.click(add_folder_from_picker, folder_picker, folder_list)
         add_preset_btn.click(add_preset, preset, folder_list)
         clear_btn.click(clear_dirs, None, folder_list)
 
-        def save_profile_ui(name, sources, dst_files):
-            # dst_files may be a list (from Gradio) or None; store a single destination
+        def save_profile_ui(name, sources, dst):
+            # dst may be a string (from gr.Directory) or None; store a single destination
             dest = ""
-            if dst_files:
-                if isinstance(dst_files, list):
-                    dest = dst_files[0] if dst_files else ""
+            if dst:
+                if isinstance(dst, list):
+                    dest = dst[0] if dst else ""
                 else:
-                    dest = dst_files
+                    dest = dst
             return save_profile(name, sources, dest)
 
         save_profile_btn.click(save_profile_ui,[profile_name,folder_list,dest_picker],profile_selector)
         # When loading a profile, return sources list and single destination for the two UI components
         profile_selector.change(load_profile, profile_selector, [folder_list,dest_picker])
 
-        def run_backup_ui(srcs,dst_files,prof,mode,archive,dry):
+        def run_backup_ui(srcs,dst,prof,mode,archive,dry):
             # Normalize sources
             if isinstance(srcs, str):
                 srcs = [srcs]
             srcs = srcs or []
             # Extract single destination
             dest = None
-            if dst_files:
-                if isinstance(dst_files, list):
-                    dest = dst_files[0] if dst_files else None
+            if dst:
+                # dst comes from gr.Directory as a string
+                if isinstance(dst, list):
+                    dest = dst[0] if dst else None
                 else:
-                    dest = dst_files
+                    dest = dst
             if not srcs:
                 return "❌ No source folders selected"
             if not dest:
@@ -296,17 +298,15 @@ Now supports selecting multiple source folders via the browse picker, with a sin
         run_btn.click(run_backup_ui,[folder_list,dest_picker,profile_name,mode,archive,dry_run],output)
 
     with gr.Tab("Restore"):
-        restore_src_picker = gr.File(label="Browse backup folder to restore", file_types=[], file_count="directory", allow_dir=True)
-        restore_dst_picker = gr.File(label="Browse restore destination", file_types=[], file_count="directory", allow_dir=True)
+        restore_src_picker = gr.Directory(label="Browse backup folder to restore")
+        restore_dst_picker = gr.Directory(label="Browse restore destination")
         restore_btn = gr.Button("♻ Restore")
         restore_out = gr.Textbox(lines=6)
 
-        def restore_ui(src_files,dst_files):
-            if not src_files or not dst_files:
+        def restore_ui(src, dst):
+            if not src or not dst:
                 return "❌ Please select both source and destination folders"
-            if isinstance(src_files,str): src_files=[src_files]
-            if isinstance(dst_files,str): dst_files=[dst_files]
-            return restore_backup(src_files[0],dst_files[0])
+            return restore_backup(src, dst)
 
         restore_btn.click(restore_ui,[restore_src_picker,restore_dst_picker],restore_out)
 
@@ -315,7 +315,7 @@ Now supports selecting multiple source folders via the browse picker, with a sin
         save_ignore = gr.Button("💾 Save ignore rules")
 
         def save_ignore_rules(txt):
-            with open(IGNORE_FILE,"w") as f:
+            with open(IGNORE_FILE,"w", encoding="utf-8") as f:
                 f.write(txt)
             return "✅ Ignore rules saved"
 
