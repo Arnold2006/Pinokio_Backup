@@ -89,6 +89,10 @@ def ignored(path, patterns):
 # ==================================================
 
 def backup_engine(sources, destination, mode, archive_type, dry_run, progress=None):
+    """
+    sources: list of source directories (or single string)
+    destination: single destination directory (string or Path)
+    """
     state = load_json(STATE_FILE, {})
     ignore = load_ignore_patterns()
 
@@ -100,6 +104,11 @@ def backup_engine(sources, destination, mode, archive_type, dry_run, progress=No
 
     copied = skipped = total = 0
     written_files = []
+
+    # Normalize sources
+    if isinstance(sources, str):
+        sources = [sources]
+    sources = [s for s in (sources or []) if s]
 
     for src in sources:
         src = Path(src)
@@ -127,7 +136,7 @@ def backup_engine(sources, destination, mode, archive_type, dry_run, progress=No
                 written_files.append(out)
                 copied += 1
                 if progress:
-                    progress(copied / max(total,1))
+                    progress(copied / max(total, 1))
 
     archive_path = None
     if archive_type != "none" and not dry_run:
@@ -172,6 +181,9 @@ profiles = load_json(PROFILE_FILE,{})
 selected_dirs = []
 
 def save_profile(name, sources, dest):
+    # dest expected to be a single path (or list where first element is used)
+    if isinstance(dest, (list, tuple)):
+        dest = dest[0] if dest else ""
     profiles[name] = {"sources": sources, "destination": dest}
     save_json(PROFILE_FILE, profiles)
     return list(profiles.keys())
@@ -180,7 +192,9 @@ def load_profile(name):
     p = profiles.get(name)
     if not p:
         return [], ""
-    return p.get("sources", []), p.get("destination", "")
+    sources = p.get("sources", [])
+    dest = p.get("destination", "")
+    return sources, dest
 
 def add_preset(name):
     p = PINOKIO_PRESETS.get(name)
@@ -200,16 +214,20 @@ with gr.Blocks(title="Pinokio Backup Tool") as app:
     gr.Markdown("""
 # 📦 Pinokio Backup Tool
 A GitHub-ready backup & restore solution for Pinokio.
+
+Now supports selecting multiple source folders via the browse picker, with a single destination folder.
 """)
 
     with gr.Tab("Backup"):
-        folder_picker = gr.File(label="Browse and select folder to add", file_types=[], file_count="directory")
-        add_btn = gr.Button("➕ Add folder")
+        # Allow selecting multiple directories in the source picker
+        folder_picker = gr.File(label="Browse and select folder(s) to add", file_types=[], file_count="multiple", allow_dir=True)
+        add_btn = gr.Button("➕ Add folder(s)")
         preset = gr.Dropdown(list(PINOKIO_PRESETS.keys()), label="Quick add Pinokio folder")
         add_preset_btn = gr.Button("➕ Add preset")
         folder_list = gr.JSON(label="Selected folders")
         clear_btn = gr.Button("🧹 Clear folders")
-        dest_picker = gr.File(label="Browse backup destination", file_types=[], file_count="directory")
+        # Destination picker remains a single directory
+        dest_picker = gr.File(label="Browse backup destination", file_types=[], file_count="directory", allow_dir=True)
         profile_name = gr.Textbox(label="Profile name")
         save_profile_btn = gr.Button("💾 Save profile")
         profile_selector = gr.Dropdown(choices=list(profiles.keys()), label="Load profile")
@@ -232,18 +250,41 @@ A GitHub-ready backup & restore solution for Pinokio.
         add_preset_btn.click(add_preset, preset, folder_list)
         clear_btn.click(clear_dirs, None, folder_list)
 
-        def save_profile_ui(name,sources,dst_files):
-            dest = dst_files[0] if dst_files else ""
-            return save_profile(name,sources,dest)
+        def save_profile_ui(name, sources, dst_files):
+            # dst_files may be a list (from Gradio) or None; store a single destination
+            dest = ""
+            if dst_files:
+                if isinstance(dst_files, list):
+                    dest = dst_files[0] if dst_files else ""
+                else:
+                    dest = dst_files
+            return save_profile(name, sources, dest)
 
         save_profile_btn.click(save_profile_ui,[profile_name,folder_list,dest_picker],profile_selector)
+        # When loading a profile, return sources list and single destination for the two UI components
         profile_selector.change(load_profile, profile_selector, [folder_list,dest_picker])
 
         def run_backup_ui(srcs,dst_files,prof,mode,archive,dry):
-            if isinstance(srcs,str):
+            # Normalize sources
+            if isinstance(srcs, str):
                 srcs = [srcs]
-            dest = dst_files[0] if dst_files else None
-            stats = backup_engine(srcs,dest,mode,archive,dry)
+            srcs = srcs or []
+            # Extract single destination
+            dest = None
+            if dst_files:
+                if isinstance(dst_files, list):
+                    dest = dst_files[0] if dst_files else None
+                else:
+                    dest = dst_files
+            if not srcs:
+                return "❌ No source folders selected"
+            if not dest:
+                return "❌ Please select a destination folder"
+            try:
+                stats = backup_engine(srcs,dest,mode,archive,dry, progress)
+            except Exception as e:
+                return f"❌ Error: {e}"
+
             return (
                 "✅ Backup complete\n"
                 f"Copied: {stats['copied']}\n"
@@ -255,8 +296,8 @@ A GitHub-ready backup & restore solution for Pinokio.
         run_btn.click(run_backup_ui,[folder_list,dest_picker,profile_name,mode,archive,dry_run],output)
 
     with gr.Tab("Restore"):
-        restore_src_picker = gr.File(label="Browse backup folder to restore", file_types=[], file_count="directory")
-        restore_dst_picker = gr.File(label="Browse restore destination", file_types=[], file_count="directory")
+        restore_src_picker = gr.File(label="Browse backup folder to restore", file_types=[], file_count="directory", allow_dir=True)
+        restore_dst_picker = gr.File(label="Browse restore destination", file_types=[], file_count="directory", allow_dir=True)
         restore_btn = gr.Button("♻ Restore")
         restore_out = gr.Textbox(lines=6)
 
@@ -289,7 +330,7 @@ def cli():
     parser.add_argument("--backup",action="store_true")
     parser.add_argument("--restore",action="store_true")
     parser.add_argument("--sources",nargs="*",default=[])
-    parser.add_argument("--dest")
+    parser.add_argument("--dest", help="Backup destination (single folder)")
     parser.add_argument("--mode",default="incremental")
     parser.add_argument("--archive",default="none")
     parser.add_argument("--dry",action="store_true")
