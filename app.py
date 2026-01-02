@@ -219,16 +219,16 @@ Now supports selecting multiple source folders via the browse picker, with a sin
 """)
 
     with gr.Tab("Backup"):
-        # Use gr.Directory for picking local folders (single at a time).
-        # The user can press "Add folder(s)" repeatedly to accumulate multiple folders.
-        folder_picker = gr.Directory(label="Browse and select folder to add")
+        # NOTE: Using gr.Textbox for path entry for compatibility with older Gradio versions.
+        # The user can paste or type folder paths; press "Add folder(s)" repeatedly to accumulate multiple folders.
+        folder_picker = gr.Textbox(label="Browse and enter folder to add (path)")
         add_btn = gr.Button("➕ Add folder(s)")
         preset = gr.Dropdown(list(PINOKIO_PRESETS.keys()), label="Quick add Pinokio folder")
         add_preset_btn = gr.Button("➕ Add preset")
         folder_list = gr.JSON(label="Selected folders")
         clear_btn = gr.Button("🧹 Clear folders")
-        # Destination picker uses a single directory
-        dest_picker = gr.Directory(label="Browse backup destination")
+        # Destination picker uses a single directory (entered as text)
+        dest_picker = gr.Textbox(label="Enter backup destination path")
         profile_name = gr.Textbox(label="Profile name")
         save_profile_btn = gr.Button("💾 Save profile")
         profile_selector = gr.Dropdown(choices=list(profiles.keys()), label="Load profile")
@@ -240,7 +240,7 @@ Now supports selecting multiple source folders via the browse picker, with a sin
         output = gr.Textbox(lines=10,label="Log")
 
         def add_folder_from_picker(path):
-            # gr.Directory returns a single path string (or None).
+            # gr.Textbox returns a single path string (or None).
             if not path:
                 return selected_dirs
             if path not in selected_dirs:
@@ -252,7 +252,7 @@ Now supports selecting multiple source folders via the browse picker, with a sin
         clear_btn.click(clear_dirs, None, folder_list)
 
         def save_profile_ui(name, sources, dst):
-            # dst may be a string (from gr.Directory) or None; store a single destination
+            # dst may be a string (from gr.Textbox) or None; store a single destination
             dest = ""
             if dst:
                 if isinstance(dst, list):
@@ -273,7 +273,7 @@ Now supports selecting multiple source folders via the browse picker, with a sin
             # Extract single destination
             dest = None
             if dst:
-                # dst comes from gr.Directory as a string
+                # dst comes from gr.Textbox as a string
                 if isinstance(dst, list):
                     dest = dst[0] if dst else None
                 else:
@@ -298,8 +298,8 @@ Now supports selecting multiple source folders via the browse picker, with a sin
         run_btn.click(run_backup_ui,[folder_list,dest_picker,profile_name,mode,archive,dry_run],output)
 
     with gr.Tab("Restore"):
-        restore_src_picker = gr.Directory(label="Browse backup folder to restore")
-        restore_dst_picker = gr.Directory(label="Browse restore destination")
+        restore_src_picker = gr.Textbox(label="Enter backup folder to restore (path)")
+        restore_dst_picker = gr.Textbox(label="Enter restore destination (path)")
         restore_btn = gr.Button("♻ Restore")
         restore_out = gr.Textbox(lines=6)
 
